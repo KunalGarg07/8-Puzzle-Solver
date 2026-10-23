@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>A* 8-Puzzle</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f7f9;--card:#fff;--ink:#1b1f27;--mute:#6b7280;--line:#e2e5ea;--tile:#3b6fe0;--tile-ink:#fff;--ok:#1f9d55;--warn:#d9822b;--bfs:#9aa3b2}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--card:#1b2029;--ink:#e8ebf0;--mute:#98a2b3;--line:#2b3240;--tile:#5b8cf0;--tile-ink:#0d1117;--ok:#3ecf7a;--warn:#f0a050;--bfs:#6b7486}}
+:root[data-theme="dark"]{--bg:#12151b;--card:#1b2029;--ink:#e8ebf0;--mute:#98a2b3;--line:#2b3240;--tile:#5b8cf0;--tile-ink:#0d1117;--ok:#3ecf7a;--warn:#f0a050;--bfs:#6b7486}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 40px}
+h1{margin:0 0 4px;font-size:1.7rem}
+p.sub{margin:0 0 18px;color:var(--mute)}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:700px){.grid{grid-template-columns:auto 1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.board{position:relative;width:min(78vw,320px);aspect-ratio:1;margin:0 auto;background:var(--line);border-radius:12px;padding:0}
+.tile{position:absolute;width:33.333%;height:33.333%;padding:4px;transition:transform .22s ease}
+.tile div{width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--tile);color:var(--tile-ink);font-size:2rem;font-weight:700;cursor:pointer;user-select:none}
+.tile.ok div{background:var(--ok);color:#fff}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;justify-content:center}
+button,select{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.primary{background:var(--tile);color:var(--tile-ink);border-color:transparent;font-weight:600}
+button:disabled{opacity:.45;cursor:default}
+.stat{margin-bottom:14px}
+.stat .l{display:flex;justify-content:space-between;font-size:.92rem}
+.stat .l b{font-variant-numeric:tabular-nums}
+.bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;width:0;border-radius:6px;transition:width .4s}
+.fgh{display:flex;gap:8px;margin:12px 0}
+.fgh div{flex:1;text-align:center;border:1px solid var(--line);border-radius:10px;padding:6px 0}
+.fgh span{display:block;font-size:.75rem;color:var(--mute)}
+.fgh b{font-size:1.3rem;font-variant-numeric:tabular-nums}
+#msg{min-height:1.5em;color:var(--mute);font-size:.92rem;margin-top:8px}
+#msg.bad{color:var(--warn)}
+ol#steps{margin:8px 0 0;padding-left:1.4em;max-height:160px;overflow:auto;font-size:.9rem;color:var(--mute)}
+ol#steps li.cur{color:var(--ink);font-weight:700}
+h2{font-size:1rem;margin:0 0 8px}
+.how{margin-top:16px;font-size:.92rem;color:var(--mute)}
+.how code{background:var(--line);padding:1px 6px;border-radius:5px;color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+<h1>A* 8-Puzzle</h1>
+<p class="sub">Click a tile next to the blank to move it, or shuffle and let A* find the shortest solution.</p>
+<div class="grid">
+  <div class="card">
+    <div class="board" id="board"></div>
+    <div class="row">
+      <button id="shuffle">Shuffle</button>
+      <button id="reset">Solved board</button>
+    </div>
+    <div class="row">
+      <select id="heur" aria-label="Heuristic">
+        <option value="m">Manhattan distance</option>
+        <option value="p">Misplaced tiles</option>
+      </select>
+      <button class="primary" id="solve">Solve with A*</button>
+    </div>
+    <div id="msg"></div>
+  </div>
+  <div class="card">
+    <h2>Search effort (nodes expanded)</h2>
+    <div class="stat"><div class="l"><span>A* with the chosen heuristic</span><b id="nA">–</b></div><div class="bar"><i id="bA" style="background:var(--ok)"></i></div></div>
+    <div class="stat"><div class="l"><span>A* with the other heuristic</span><b id="nB">–</b></div><div class="bar"><i id="bB" style="background:var(--tile)"></i></div></div>
+    <div class="stat"><div class="l"><span>BFS (no heuristic)</span><b id="nC">–</b></div><div class="bar"><i id="bC" style="background:var(--bfs)"></i></div></div>
+    <div class="stat"><div class="l"><span>Optimal solution length</span><b id="len">–</b></div></div>
+    <h2>Replay the solution</h2>
+    <div class="fgh"><div><span>g (moves made)</span><b id="g">–</b></div><div><span>h (estimate left)</span><b id="h">–</b></div><div><span>f = g + h</span><b id="f">–</b></div></div>
+    <div class="row" style="justify-content:flex-start;margin-top:0">
+      <button id="prev" disabled>Prev</button>
+      <button id="play" disabled>Play</button>
+      <button id="next" disabled>Next</button>
+    </div>
+    <ol id="steps"></ol>
+  </div>
+</div>
+<p class="how">A* expands the node with the lowest <code>f(n) = g(n) + h(n)</code>. Both heuristics are admissible, so the solution is always the shortest. A better heuristic reaches it by expanding fewer nodes, and BFS has no heuristic at all.</p>
+</main>
+<script>
+const GOAL="123456780";
+const ADJ=[[1,3],[0,2,4],[1,5],[0,4,6],[1,3,5,7],[2,4,8],[3,7],[4,6,8],[5,7]];
+const $=id=>document.getElementById(id);
+function hM(s){let t=0;for(let i=0;i<9;i++){const v=+s[i];if(v){const g=v-1;t+=Math.abs((i/3|0)-(g/3|0))+Math.abs(i%3-g%3)}}return t}
+function hP(s){let t=0;for(let i=0;i<9;i++)if(s[i]!=="0"&&s[i]!==GOAL[i])t++;return t}
+const H={m:hM,p:hP};
+function swap(s,i,j){const a=s.split("");[a[i],a[j]]=[a[j],a[i]];return a.join("")}
+function solvable(s){const a=[...s].filter(c=>c!=="0");let n=0;for(let i=0;i<a.length;i++)for(let j=i+1;j<a.length;j++)if(a[i]>a[j])n++;return n%2===0}
+
+class Heap{constructor(){this.a=[]}
+ push(x){const a=this.a;a.push(x);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(a[p][0]<=a[i][0]&&!(a[p][0]===a[i][0]&&a[p][1]>a[i][1]))break;[a[p],a[i]]=[a[i],a[p]];i=p}}
+ pop(){const a=this.a,t=a[0],l=a.pop();if(a.length){a[0]=l;let i=0;for(;;){let m=i,L=2*i+1,R=L+1;const lt=(x,y)=>a[x][0]<a[y][0]||(a[x][0]===a[y][0]&&a[x][1]<a[y][1]);if(L<a.length&&lt(L,m))m=L;if(R<a.length&&lt(R,m))m=R;if(m===i)break;[a[m],a[i]]=[a[i],a[m]];i=m}}return t}
+ get size(){return this.a.length}}
+
+function astar(start,h){
+  const open=new Heap(),best=new Map([[start,0]]),par=new Map([[start,null]]),closed=new Set();
+  let tie=0,exp=0;open.push([h(start),tie++,0,start]);
+  while(open.size){
+    const [,,g,s]=open.pop();
+    if(closed.has(s))continue;closed.add(s);exp++;
+    if(s===GOAL){const p=[];for(let c=s;c!==null;c=par.get(c))p.push(c);return{path:p.reverse(),exp}}
+    const b=s.indexOf("0");
+    for(const j of ADJ[b]){const n=swap(s,b,j),ng=g+1;
+      if(!best.has(n)||ng<best.get(n)){best.set(n,ng);par.set(n,s);open.push([ng+h(n),tie++,ng,n])}}
+  }
+  return null;
+}
+function bfs(start){
+  const q=[start],seen=new Set([start]);let i=0,exp=0;
+  while(i<q.length){const s=q[i++];exp++;if(s===GOAL)return exp;
+    const b=s.indexOf("0");for(const j of ADJ[b]){const n=swap(s,b,j);if(!seen.has(n)){seen.add(n);q.push(n)}}}
+  return exp;
+}
+
+let state=GOAL,path=null,idx=0,timer=null;
+const tiles={};
+for(let n=1;n<=8;n++){const t=document.createElement("div");t.className="tile";t.innerHTML="<div>"+n+"</div>";t.onclick=()=>clickTile(n);$("board").appendChild(t);tiles[n]=t}
+
+function render(){
+  for(let n=1;n<=8;n++){const i=state.indexOf(String(n));
+    tiles[n].style.transform="translate("+(i%3)*100+"%,"+(i/3|0)*100+"%)";
+    tiles[n].classList.toggle("ok",GOAL[i]===String(n))}
+}
+function msg(t,bad){const m=$("msg");m.textContent=t;m.className=bad?"bad":""}
+function clearResults(){
+  stop();path=null;idx=0;
+  ["nA","nB","nC","len","g","h","f"].forEach(i=>$(i).textContent="–");
+  ["bA","bB","bC"].forEach(i=>$(i).style.width="0");
+  $("steps").innerHTML="";setCtl()
+}
+function setCtl(){const on=!!path;$("prev").disabled=!on||idx===0;$("next").disabled=!on||idx>=path.length-1;$("play").disabled=!on}
+function clickTile(n){
+  const i=state.indexOf(String(n)),b=state.indexOf("0");
+  if(!ADJ[b].includes(i))return;
+  state=swap(state,i,b);clearResults();render();
+  msg(state===GOAL?"Solved! Nice one.":"");
+}
+function shuffle(){
+  let s=GOAL,prev=-1;
+  for(let k=0;k<40;k++){const b=s.indexOf("0"),opts=ADJ[b].filter(x=>x!==prev);const j=opts[Math.random()*opts.length|0];prev=b;s=swap(s,b,j)}
+  state=s;clearResults();render();msg("Shuffled. Press Solve with A*.")
+}
+function solve(){
+  if(state===GOAL){msg("Already solved.");return}
+  if(!solvable(state)){msg("This board is unsolvable (odd number of inversions).",true);return}
+  msg("Searching…");
+  setTimeout(()=>{
+    const key=$("heur").value,other=key==="m"?"p":"m";
+    const a=astar(state,H[key]),b=astar(state,H[other]),c=bfs(state);
+    path=a.path;idx=0;
+    const mx=Math.max(a.exp,b.exp,c);
+    $("nA").textContent=a.exp;$("nB").textContent=b.exp;$("nC").textContent=c;
+    $("bA").style.width=Math.max(2,a.exp/mx*100)+"%";
+    $("bB").style.width=Math.max(2,b.exp/mx*100)+"%";
+    $("bC").style.width=Math.max(2,c/mx*100)+"%";
+    $("len").textContent=(path.length-1)+" moves";
+    $("steps").innerHTML=path.map((s,i)=>"<li"+(i===0?"":"")+" data-i='"+i+"'>"+(i===0?"Start":"Move "+i+": slide tile "+s[path[i-1].indexOf("0")])+"</li>").join("");
+    showStep(0);msg("Solved in "+(path.length-1)+" moves. Use Play or Next to replay it.")
+  },20)
+}
+function showStep(i){
+  idx=i;state=path[i];render();
+  const h=H[$("heur").value](state);
+  $("g").textContent=i;$("h").textContent=h;$("f").textContent=i+h;
+  document.querySelectorAll("#steps li").forEach(li=>li.classList.toggle("cur",+li.dataset.i===i));
+  setCtl()
+}
+function stop(){if(timer){clearInterval(timer);timer=null}$("play").textContent="Play"}
+$("shuffle").onclick=shuffle;
+$("reset").onclick=()=>{state=GOAL;clearResults();render();msg("")};
+$("solve").onclick=solve;
+$("heur").onchange=()=>{if(path)solve()};
+$("next").onclick=()=>{stop();showStep(idx+1)};
+$("prev").onclick=()=>{stop();showStep(idx-1)};
+$("play").onclick=()=>{
+  if(timer){stop();return}
+  if(idx>=path.length-1)showStep(0);
+  $("play").textContent="Pause";
+  timer=setInterval(()=>{if(idx>=path.length-1){stop();return}showStep(idx+1)},600)
+};
+shuffle();
+</script>
+</body>
+</html>
